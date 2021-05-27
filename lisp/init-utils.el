@@ -1,5 +1,7 @@
 ;; -*- coding: utf-8; lexical-binding: t; -*-
 
+;; Please note functions here could be used in ~/.custom.el
+
 (defun local-require (pkg)
   "Require PKG in site-lisp directory."
   (unless (featurep pkg)
@@ -29,8 +31,9 @@
           rev
           (make-string level ?^)))
 
-(defun nonempty-lines (s)
-  (split-string s "[\r\n]+" t))
+(defun nonempty-lines (str)
+  "Split STR into lines."
+  (split-string str "[\r\n]+" t))
 
 (defun my-lines-from-command-output (command)
   "Return lines of COMMAND output."
@@ -50,7 +53,7 @@
   "Can use tags file to build imenu function"
   (my-ensure 'counsel-etags)
   (and (locate-dominating-file default-directory "TAGS")
-       ;; latest universal ctags has built in parser for javacript/typescript
+       ;; latest universal ctags has built in parser for javascript/typescript
        (counsel-etags-universal-ctags-p "ctags")
        (memq major-mode '(typescript-mode js-mode javascript-mode))))
 
@@ -87,6 +90,10 @@
   "Add entries to `interpreter-mode-alist' to use `MODE' for all given file `PATTERNS'."
   (dolist (pattern patterns)
     (push (cons pattern mode) interpreter-mode-alist )))
+
+(defmacro my-push-if-uniq (item items)
+  "Push ITEM into ITEMS if it's unique."
+  `(unless (member ,item ,items) (push ,item ,items)))
 
 (defun my-what-face (&optional position)
   "Show all faces at POSITION."
@@ -255,45 +262,49 @@ If HINT is empty, use symbol at point."
 
 (defvar my-mplayer-extra-opts ""
   "Extra options for mplayer (ao or vo setup).
-For example, you can '(setq my-mplayer-extra-opts \"-ao alsa -vo vdpau\")'.")
+For example, you can '(setq my-mplayer-extra-opts \"-fs -ao alsa -vo vdpau\")'.")
 
 (defun my-guess-mplayer-path ()
   "Guess cli program mplayer's path."
-  (let* ((rlt "mplayer"))
+  (let* ((program "mplayer")
+         (common-opts "-fs -quiet"))
     (cond
      (*is-a-mac*
-      (setq rlt "mplayer -quiet"))
+      (setq program "mplayer"))
 
      (*linux*
-      (setq rlt (format "mplayer -quiet -stop-xscreensaver %s"
-                        my-mplayer-extra-opts)))
+      (setq program "mplayer -stop-xscreensaver"))
+
      (*cygwin*
       (if (file-executable-p "/cygdrive/c/mplayer/mplayer.exe")
-          (setq rlt "/cygdrive/c/mplayer/mplayer.exe -quiet")
-        (setq rlt "/cygdrive/d/mplayer/mplayer.exe -quiet")))
+          (setq program "/cygdrive/c/mplayer/mplayer.exe")
+        (setq program "/cygdrive/d/mplayer/mplayer.exe")))
 
-     (t ; windows
+     ;; windows
+     (t
       (if (file-executable-p "c:\\\\mplayer\\\\mplayer.exe")
-          (setq rlt "c:\\\\mplayer\\\\mplayer.exe -quiet")
-        (setq rlt "d:\\\\mplayer\\\\mplayer.exe -quiet"))))
-    rlt))
+          (setq program "c:\\\\mplayer\\\\mplayer.exe")
+        (setq program "d:\\\\mplayer\\\\mplayer.exe"))))
 
-(defun my-guess-image-viewer-path (file &optional is-stream)
-  (let* ((rlt "mplayer"))
-    (cond
-     (*is-a-mac*
-      (setq rlt
-            (format "open %s &" file)))
-     (*linux*
-      (setq rlt
-            (if is-stream (format "curl -L %s | feh -F - &" file) (format "feh -F %s &" file))))
-     (*cygwin* (setq rlt "feh -F"))
-     (t ; windows
-      (setq rlt
-            (format "rundll32.exe %s\\\\System32\\\\\shimgvw.dll, ImageView_Fullscreen %s &"
-                    (getenv "SystemRoot")
-                    file))))
-    rlt))
+    (format "%s %s %s" program common-opts my-mplayer-extra-opts)))
+
+(defun my-guess-image-viewer-path (image &optional stream-p)
+  "How to open IMAGE which could be STREAM-P."
+  (cond
+   (*is-a-mac*
+    (format "open %s &" image))
+
+   (*linux*
+    (if stream-p (format "curl -L %s | feh -F - &" image)
+      (format "feh -F %s &" image)))
+
+   (*cygwin*
+    "feh -F")
+
+   (t ; windows
+    (format "rundll32.exe %s\\\\System32\\\\\shimgvw.dll, ImageView_Fullscreen %s &"
+            (getenv "SystemRoot")
+            image))))
 
 (defun my-gclip ()
   "Get clipboard content."
@@ -526,7 +537,7 @@ Copied from 3rd party package evil-textobj."
   "Handle some strange imenu ITEM."
   (if (markerp item) (marker-position item) item))
 
-(defun my-get-closest-imenu-item (cands)
+(defun my-closest-imenu-item-internal (cands)
   "Return closest imenu item from CANDS."
   (let* ((pos (point))
          closest)
@@ -542,6 +553,16 @@ Copied from 3rd party package evil-textobj."
             (setq closest item))))))
     closest))
 
+(defun my-mark-to-position (&optional position)
+  "Mark text from point to POSITION or end of of line."
+  (set-mark (or position (line-end-position)))
+  (activate-mark))
+
+(defun my-closest-imenu-item ()
+  "Return the closest imenu item."
+  (my-ensure 'counsel)
+  (my-closest-imenu-item-internal (counsel--imenu-candidates)))
+
 (defun my-setup-extra-keymap (extra-fn-list hint fn &rest args)
   "Map EXTRA-FN-LIST to new keymap and show HINT after calling FN with ARGS."
   (let ((echo-keystrokes nil))
@@ -553,6 +574,61 @@ Copied from 3rd party package evil-textobj."
          (define-key map (kbd (nth 0 item)) (nth 1 item)))
        map)
      t)))
+
+;; @see http://emacs.stackexchange.com/questions/14129/which-keyboard-shortcut-to-use-for-navigating-out-of-a-string
+(defun my-font-face-similar-p (f1 f2)
+  "Font face F1 and F2 are similar or same."
+  ;; (message "f1=%s f2=%s" f1 f2)
+  ;; in emacs-lisp-mode, the '^' from "^abde" has list of faces:
+  ;;   (font-lock-negation-char-face font-lock-string-face)
+  (if (listp f1) (setq f1 (nth 1 f1)))
+  (if (listp f2) (setq f2 (nth 1 f2)))
+
+  (or (eq f1 f2)
+      ;; C++ comment has different font face for limit and content
+      ;; f1 or f2 could be a function object because of rainbow mode
+      (and (string-match "-comment-" (format "%s" f1))
+           (string-match "-comment-" (format "%s" f2)))))
+
+(defun my-font-face-at-point-similar-p (font-face-list)
+  "Test if font face at point is similar to any font in FONT-FACE-LIST."
+  (let* ((f (get-text-property (point) 'face))
+         rlt)
+    (dolist (ff font-face-list)
+      (if (my-font-face-similar-p f ff) (setq rlt t)))
+    rlt))
+
+(defun my-pdf-view-goto-page (page)
+  "Go to pdf file's specific PAGE."
+  (cond
+   ((eq major-mode 'pdf-view-mode)
+    (pdf-view-goto-page page))
+   (t
+    (doc-view-goto-page page))))
+
+(defun my-focus-on-pdf-window-then-back (fn)
+  "Focus on pdf window and call function FN then move focus back."
+  (let* ((pdf-window (cl-find-if (lambda (w)
+                                   (let ((file (buffer-file-name (window-buffer w))))
+                                     (and file (string= (file-name-extension file) "pdf"))))
+                                 (my-visible-window-list)))
+         (pdf-file (buffer-file-name (window-buffer pdf-window)))
+         (original-window (get-buffer-window)))
+    (when (and pdf-window pdf-file)
+      ;; select pdf-window
+      (select-window pdf-window)
+      ;; do something
+      (funcall fn pdf-file)
+      ;; back home
+      (select-window original-window))))
+
+(defun my-list-windows-in-frame (&optional frame)
+  "List windows in FRAME."
+  (window-list frame 0 (frame-first-window frame)))
+
+(defun my-visible-window-list ()
+  "Visible window list."
+  (cl-mapcan #'my-list-windows-in-frame (visible-frame-list)))
 
 (provide 'init-utils)
 ;;; init-utils.el ends here

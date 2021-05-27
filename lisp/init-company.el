@@ -2,18 +2,20 @@
 
 (add-hook 'after-init-hook 'global-company-mode)
 
-(when (fboundp 'evil-declare-change-repeat)
-  (mapc #'evil-declare-change-repeat
-        '(company-complete-common
-          company-select-next
-          company-select-previous
-          company-complete-selection
-          company-complete-number)))
+;; evil has already integrated company-mode, see evil-integration.el
 
 (defvar my-company-zero-key-for-filter nil
   "If t, pressing 0 calls `company-filter-candidates' per company's status.")
 
 (with-eval-after-load 'company
+
+  ;; company changed the default key bindings, un-comment below code to restore original key bindings
+  ;; @see https://github.com/company-mode/company-mode/wiki/Tips-%26-tricks/_compare/5ea840d^...5ea840d
+
+  ;; (define-key company-active-map (kbd "C-n") nil)
+  ;; (define-key company-active-map (kbd "C-p") nil)
+  ;; (define-key company-active-map (kbd "M-n") #'company-select-next)
+  ;; (define-key company-active-map (kbd "M-p") #'company-select-previous)
 
   (defun my-company-number ()
     "Forward to `company-complete-number'.
